@@ -53,22 +53,31 @@ public class RestrictedNGramGenerator extends EvalFunc<DataBag> {
     private Set<String> surfaceFormLookup;
 
     private Locale locale;
-    private String language;
 
     private final BagFactory bagFactory = DefaultBagFactory.getInstance();
     private final TupleFactory tupleFactory = TupleFactory.getInstance();
 
-    public RestrictedNGramGenerator(int ngramSizeLimit, String surfaceFormListFile, String locale) {
+    public RestrictedNGramGenerator(int ngramSizeLimit, String surfaceFormListFile, String locale) throws IOException {
         this.ngramSizeLimit = ngramSizeLimit;
         this.surfaceFormListFile = surfaceFormListFile;
         this.loadSurfaceFormsToMemory = !this.surfaceFormListFile.equals("");
 
         String[] localeArr = locale.split("_");
         this.locale = new Locale(localeArr[0], localeArr[1]);
-        this.language = localeArr[0];
+
+        String language = localeArr[0];
+        InputStream modelIs = this.getClass().getClassLoader().getResourceAsStream("opennlp/"+language+"-token.bin");
+        if (modelIs != null) {
+            this.tokenizer = new OpenNLPStringTokenizer(
+                    new TokenizerME(new TokenizerModel(modelIs)),
+                    new Stemmer());
+        }
+        else {
+            this.tokenizer = new LanguageIndependentStringTokenizer(this.locale, new Stemmer());
+        }
     }
 
-    public RestrictedNGramGenerator(String ngramSizeLimit, String surfaceFormListFile, String locale) {
+    public RestrictedNGramGenerator(String ngramSizeLimit, String surfaceFormListFile, String locale) throws IOException {
         this(Integer.valueOf(ngramSizeLimit), surfaceFormListFile, locale);
     }
 
@@ -84,13 +93,11 @@ public class RestrictedNGramGenerator extends EvalFunc<DataBag> {
         if (this.loadSurfaceFormsToMemory) {
             list.add(this.surfaceFormListFile + "#" + SURFACE_FORMS_LIST_VAR);
         }
-        list.add(this.language + ".tokenizer_model" + "#" + TOKENIZER_MODEL_VAR);
         return list;
     }
 
     @Override
     public DataBag exec(Tuple input) throws IOException {
-        checkAndSetTokenizer();
         checkAndSetSurfaceForms();
 
         String text = (String)input.get(0);
@@ -98,26 +105,6 @@ public class RestrictedNGramGenerator extends EvalFunc<DataBag> {
         DataBag output = this.bagFactory.newDefaultBag();
         fillOutputWithNgrams(spans, text, output, this.ngramSizeLimit);
         return output;
-    }
-
-    /**
-     * Init tokenizer from distributed cache.
-     * Fall back on language independent tokenization.
-     */
-    private void checkAndSetTokenizer() {
-        if (this.tokenizer == null) {
-            if (new File("./" + TOKENIZER_MODEL_VAR).length() > 10) {
-                try {
-                    this.tokenizer = new OpenNLPStringTokenizer(new TokenizerME(new TokenizerModel(new FileInputStream(new File("./" + TOKENIZER_MODEL_VAR)))), new Stemmer());
-                } catch (IOException ignored) {
-                    // default to LanguageIndependentStringTokenizer below
-                }
-            }
-
-            if (this.tokenizer == null) {
-                this.tokenizer = new LanguageIndependentStringTokenizer(this.locale, new Stemmer());
-            }
-        }
     }
 
     /**
