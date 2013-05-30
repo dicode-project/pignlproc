@@ -24,7 +24,7 @@ IMPORT '$MACROS_DIR/nerd_commons.pig';
 ids, articles, pairs = read('$INPUT', '$LANG', $MIN_SURFACE_FORM_LENGTH);
 
 -- Make ngrams
-pageNgrams = diskIntensiveNgrams(articles, $MAX_NGRAM_LENGTH);
+pageNgrams = diskIntensiveNgrams(articles, $MAX_NGRAM_LENGTH, '$LOCALE');
 --pageNgrams = memoryIntensiveNgrams(articles, pairs, $MAX_NGRAM_LENGTH, $TEMPORARY_SF_LOCATION, $LOCALE);
 
 -- Count
@@ -105,6 +105,13 @@ nerdStatsTable = FOREACH ( JOIN
     id,
     uriCount;
 
--- Store
-STORE nerdStatsTable INTO '$OUTPUT';
+-- for German, discard surface forms that contain 4-byte UTF-8 characters
+-- (filtering earlier might pollute the read macro)
+DEFINE has4byteUtf8 pignlproc.helpers.Has4ByteUtf8Chars();
+filteredTable = FILTER nerdStatsTable BY
+  '$LANG' == 'de' AND
+  NOT has4byteUtf8(surfaceForm)
+  AND SIZE(surfaceForm) < 250;
 
+-- Store
+STORE filteredTable INTO '$OUTPUT';
